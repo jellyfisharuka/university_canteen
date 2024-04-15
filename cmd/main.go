@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	
 )
 
 func main() {
@@ -27,4 +28,5 @@ func main() {
 	if err != nil {
 		log.Fatal("could not load the database", db)
 	}
+	
 }
