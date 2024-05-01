@@ -3,9 +3,7 @@ package main
 import (
 	"final_project/initializers"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"net/http"
+	"final_project/internal/router"
 )
 
 func init() {
@@ -27,12 +25,6 @@ func init() {
 //	@in							header
 //	@schemes
 func main() {
-	r := gin.Default()
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	router := router.SetupRouter()
 
-	r.Run(":8080")
-}
-
-func PingExample(c *gin.Context) {
-	c.JSON(http.StatusOK, "pong")
 }

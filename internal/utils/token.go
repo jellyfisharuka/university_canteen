@@ -1,40 +1,89 @@
 package utils
 
-
 import (
+	"final_project/internal/models"
 	"fmt"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt"
+	"gorm.io/gorm"
 )
 
-func GenerateToken(ttl time.Duration, payload interface{}, secretJWTKey string)(string, error) {
-	token:=jwt.New(jwt.SigningMethodHS256)
-	now := time.Now().UTC()
-	claim := token.Claims.(jwt.MapClaims)
-	claim["sub"]=payload
-	claim["exp"]=now.Add(ttl).Unix()
-	claim["iat"]=now.Unix()
-	claim["nbf"]=now.Unix()
-	tokenString, err:=token.SignedString([]byte(secretJWTKey))
-	if err!=nil {
-		return "", fmt.Errorf("generating JWT Token failed: %w", err)
-	}
-	return tokenString, nil
-}
- func ValidateToken(token string, signedJWTKey string)(interface{},error) {
-	tok, err:=jwt.Parse(token, func(jwtToken *jwt.Token) (interface{}, error){
-		if _, ok:=jwtToken.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected method:%s", jwtToken.Header["alg"])
-		}
-		return []byte(signedJWTKey), nil
+var jwtKey = []byte(os.Getenv("my_secret"))
+func GenerateToken(username string) (string, error) {
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(time.Hour * 1).Unix(),
 	})
-	if err!=nil {
-		return nil, fmt.Errorf("invalid token %w", err)
+
+	return token.SignedString(jwtKey)
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := c.GetHeader("Authorization")
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			
+			c.Abort()
+			return
+		}
+
+		tokenString = strings.Replace(tokenString, "Bearer ", "", 1)
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			}
+			return jwtKey, nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			c.Abort()
+			return
+		}
+
+		role, ok := claims["role"].(string)
+		if !ok || (role != "user" && role != "menu_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+			c.Abort()
+			return
+		}
+
+		c.Set("role", role) 
+		c.Next()
 	}
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok||!tok.Valid {
-		return nil, fmt.Errorf("Invalid token claim")
+
+}
+func SignupUser(db *gorm.DB, newUser models.Users) error {
+
+	var existingUser models.Users
+	result := db.Where("username = ?", newUser.Username).First(&existingUser)
+	if result.Error == nil {
+		return fmt.Errorf("Username already exists")
 	}
-	return claims["sub"], nil
- }
+
+	hashedPassword, err := HashPassword(newUser.Password)
+	if err != nil {
+		return fmt.Errorf("Failed to hash password")
+	}
+
+	newUser.Password = hashedPassword
+	if err := db.Create(&newUser).Error; err != nil {
+		return fmt.Errorf("Failed to create user")
+	}
+
+	return nil
+}
