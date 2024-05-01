@@ -50,11 +50,12 @@ func setupAuthEndpoints(router *gin.Engine) {
 			return
 		}
 		var existingUser models.User
-		result := initializers.DB.Select("username", "password", "role").Where("username = ?", loginUser.Username).First(&existingUser)
+		result := initializers.DB.Select("ID", "username", "password", "role").Where("username = ?", loginUser.Username).First(&existingUser)
 		if result.Error != nil || !utils.CheckPassword(existingUser.Password, loginUser.Password) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
+
 		token, err := utils.GenerateToken(existingUser.Username, string(existingUser.Role), int(existingUser.ID))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
@@ -168,7 +169,7 @@ func setupOrderEndpoints(router *gin.Engine) {
 		// POST запрос для создания нового заказа
 		orders.POST("/", utils.AuthMiddleware(), func(c *gin.Context) {
 			// Получаем UserID из контекста, предоставленного middleware
-			userID, _ := c.Get("role")
+			userID, _ := c.Get("username")
 			fmt.Println("________________HIHIHIHIHIHIHI_______________________________")
 			fmt.Println(userID)
 			fmt.Println("_______________________________________________")
