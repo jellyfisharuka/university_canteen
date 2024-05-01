@@ -1,9 +1,27 @@
 package models
 
 import (
+	"errors"
+	"gorm.io/gorm"
 	"time"
 
 	"github.com/shopspring/decimal"
+)
+
+type Role string
+
+const (
+	Admin  Role = "admin"
+	Client Role = "client"
+)
+
+type Status string
+
+const (
+	Canceled   Status = "canseled"
+	Preparing  Status = "preparing"
+	Ready      Status = "ready"
+	Compleated Status = "compoleated"
 )
 
 type User struct {
@@ -11,14 +29,14 @@ type User struct {
 	Username string `gorm:"unique"`
 	Email    string
 	Password string
-	Role     string   `gorm:"type:enum('admin', 'user')"`
+	Role     Role
 	Orders   []Order  `gorm:"foreignKey:UserID"`
 	Baskets  []Basket `gorm:"foreignKey:UserID"`
 }
 type Order struct {
 	ID           uint   `gorm:"primaryKey"`
 	UserID       uint   // Foreign key for User
-	OrderStatus  string `gorm:"type:enum('placed', 'preparing', 'ready', 'completed', 'cancelled')"`
+	OrderStatus  Status `gorm:"type:varchar(255)"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	TotalPrice   decimal.Decimal
@@ -60,4 +78,21 @@ type Menu struct {
 	IsAvailable  bool
 	OrderDetails []OrderDetail `gorm:"foreignKey:ItemID"`
 	BasketItems  []BasketItem  `gorm:"foreignKey:ItemID"`
+}
+
+func (o *Order) BeforeSave(tx *gorm.DB) (err error) {
+	switch o.OrderStatus {
+	case Canceled, Preparing, Ready, Compleated:
+		return nil
+	default:
+		return errors.New("invalid order status")
+	}
+}
+func (u *User) BeforeSave(tx *gorm.DB) (err error) {
+	switch u.Role {
+	case Admin, Client:
+		return nil
+	default:
+		return errors.New("invalid user role")
+	}
 }

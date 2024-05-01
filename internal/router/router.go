@@ -14,6 +14,7 @@ func SetupRouter() *gin.Engine {
 	router := gin.Default()
 	router.GET("/public", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "welcome to public endpoint"})
+
 	})
 	router.GET("/private", utils.AuthMiddleware(), func(c *gin.Context) {
 		role, _ := c.Get("role") // Получаем роль пользователя из контекста
@@ -24,6 +25,7 @@ func SetupRouter() *gin.Engine {
 			// Действия для обычного пользователя
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (user)"})
 		}
+
 	})
 	router.POST("/login", func(c *gin.Context) {
 		var loginUser models.User
