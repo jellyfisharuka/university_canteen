@@ -169,10 +169,13 @@ func setupOrderEndpoints(router *gin.Engine) {
 		// POST запрос для создания нового заказа
 		orders.POST("/", utils.AuthMiddleware(), func(c *gin.Context) {
 			// Получаем UserID из контекста, предоставленного middleware
-			userID, _ := c.Get("username")
-			fmt.Println("________________HIHIHIHIHIHIHI_______________________________")
-			fmt.Println(userID)
-			fmt.Println("_______________________________________________")
+			userIDAny, _ := c.Get("ID")
+			userID, ok := userIDAny.(uint)
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+				return
+			}
+
 			var orderReq OrderRequest
 			if err := c.BindJSON(&orderReq); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -181,7 +184,7 @@ func setupOrderEndpoints(router *gin.Engine) {
 
 			// Создаем новый заказ
 			newOrder := models.Order{
-				UserID:       userID.(uint),
+				UserID:       userID,
 				OrderDetails: make([]models.OrderDetail, 0),
 				CreatedAt:    time.Now(),
 			}

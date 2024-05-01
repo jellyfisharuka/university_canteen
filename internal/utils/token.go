@@ -58,6 +58,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		fmt.Println("Claims from token:", claims)
+		userID, ok := claims["ID"].(int)
 		role, ok := claims["role"].(string)
 
 		if !ok || (role != "client" && role != "admin") {
@@ -67,6 +68,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("role", role)
+		c.Set("ID", int(userID))
 		c.Next()
 	}
 
