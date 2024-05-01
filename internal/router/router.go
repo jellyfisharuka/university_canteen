@@ -31,12 +31,10 @@ func setupPublicEndpoints(router *gin.Engine) {
 
 func setupPrivateEndpoints(router *gin.Engine) {
 	router.GET("/private", utils.AuthMiddleware(), func(c *gin.Context) {
-		role, _ := c.Get("role") // Получаем роль пользователя из контекста
+		role, _ := c.Get("role") 
 		if role == "admin" {
-			// Действия для администратора меню
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (menu admin)"})
 		} else if role == "client" {
-			// Действия для обычного пользователя
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (user)"})
 		}
 
@@ -79,7 +77,6 @@ func setupAuthEndpoints(router *gin.Engine) {
 
 		c.JSON(http.StatusCreated, gin.H{"message": "User signed up successfully"})
 	})
-
 }
 
 func setupMenuEndpoints(router *gin.Engine) {
@@ -155,6 +152,7 @@ func setupBasketEndpoints(router *gin.Engine) {
 	})
 }
 
+
 type OrderRequest struct {
 	OrderItems []OrderItem `json:"order_items"`
 }
@@ -179,41 +177,40 @@ func setupOrderEndpoints(router *gin.Engine) {
                 UserID:       userID.(uint),
                 OrderDetails: []models.OrderDetail{},
                 CreatedAt:    time.Now(),
-                OrderStatus:  models.Preparing, // Assuming a default status
+                OrderStatus:  models.Preparing, 
             }
 
             var totalPrice decimal.Decimal
-            tx := initializers.DB.Begin() // Begin a transaction
+            tx := initializers.DB.Begin() 
 
             for _, item := range orderReq.OrderItems {
                 menuItem := models.Menu{}
                 result := tx.First(&menuItem, item.ProductID)
                 if result.Error != nil {
-                    tx.Rollback() // Rollback the transaction on error
+                    tx.Rollback() 
                     c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found", "productID": item.ProductID})
                     return
                 }
 
                 if menuItem.Quantity < item.Quantity {
-                    tx.Rollback() // Rollback the transaction if not enough stock
+                    tx.Rollback() 
                     c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough stock", "productID": item.ProductID})
                     return
                 }
 
-                menuItem.Quantity -= item.Quantity // Subtract the ordered quantity from the menu item stock
+                menuItem.Quantity -= item.Quantity 
                 if err := tx.Save(&menuItem).Error; err != nil {
                     tx.Rollback() // Rollback the transaction on error
                     c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item stock", "productID": item.ProductID})
                     return
                 }
 
-                // Calculate the total cost for this order detail
                 itemTotalCost := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
 
                 orderDetail := models.OrderDetail{
                     ItemID:    item.ProductID,
                     Quantity:  item.Quantity,
-                    TotalCost: itemTotalCost, // Set the total cost calculated
+                    TotalCost: itemTotalCost, 
                 }
                 newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
 
@@ -223,12 +220,12 @@ func setupOrderEndpoints(router *gin.Engine) {
             newOrder.TotalPrice = totalPrice
 
             if err := tx.Create(&newOrder).Error; err != nil {
-                tx.Rollback() // Rollback the transaction if the order fails to create
+                tx.Rollback() 
                 c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
                 return
             }
 
-            tx.Commit() // Commit the transaction
+            tx.Commit() 
             c.JSON(http.StatusCreated, newOrder)
         })
     }

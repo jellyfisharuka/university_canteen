@@ -72,7 +72,7 @@ func AuthMiddleware() gin.HandlerFunc {
 	  }
   
 	  c.Set("role", role)
-	  c.Set("ID", uint(userID))  // Convert float64 to uint and set in context
+	  c.Set("ID", uint(userID))  
 	  c.Next()
 	}
   }
