@@ -5,6 +5,7 @@ import (
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
+	"github.com/go-playground/validator/v10"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"net/http"
@@ -17,6 +18,7 @@ func SetupRouter() *gin.Engine {
 	setupPrivateEndpoints(router)
 	setupAuthEndpoints(router)
 	setupBasketEndpoints(router)
+	setupBasketRouters(router)
 	setupMenuEndpoints(router)
 	setupOrderEndpoints(router)
 	setupOrderRoutes(router)
@@ -69,7 +71,12 @@ func setupAuthEndpoints(router *gin.Engine) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
+		validate := validator.New()
 
+		if err := validate.Struct(newUser); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email format"})
+			return
+		}
 		if err := utils.SignupUser(initializers.DB, newUser); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign up user"})
 			return
@@ -145,14 +152,115 @@ func setupMenuEndpoints(router *gin.Engine) {
 		})
 	}
 }
+func setupBasketRouters(router *gin.Engine) {
+    basketRoutes := router.Group("/basket", utils.AuthMiddleware())
+    {
+        basketRoutes.GET("/", func(c *gin.Context) {
+            userID, exists := c.Get("ID")
+            if !exists {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+                return
+            }
 
-func setupBasketEndpoints(router *gin.Engine) {
-	router.GET("/basket", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"message": "welcome to basket endpoint"})
-	})
+            var basket models.Basket
+            result := initializers.DB.Preload("BasketItems.MenuItem").Where("user_id = ?", userID.(uint)).First(&basket)
+            if result.Error != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
+                return
+            }
+
+			var totalPrice decimal.Decimal = decimal.NewFromFloat(0.0) 
+            items := []map[string]interface{}{}
+            for _, item := range basket.BasketItems {
+                itemTotalPrice := item.MenuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
+                items = append(items, map[string]interface{}{
+                    "item_id":     item.MenuItem.ID,
+                    "name":        item.MenuItem.Name,
+                    "description": item.MenuItem.Description,
+                    "price":       item.MenuItem.Price.String(),
+                    "quantity":    item.Quantity,
+                    "total_price": itemTotalPrice.String(),
+                })
+                totalPrice = totalPrice.Add(itemTotalPrice)
+            }
+
+            c.JSON(http.StatusOK, gin.H{
+                "basket_id":   basket.ID,
+                "items":       items,
+                "total_price": totalPrice.String(),
+            })
+        })
+    }
 }
 
 
+<<<<<<< HEAD
+=======
+
+func setupBasketEndpoints(router *gin.Engine) {
+    basketRoutes := router.Group("/basket", utils.AuthMiddleware())
+    {
+        basketRoutes.POST("/", func(c *gin.Context) {
+            userID, exists := c.Get("ID")
+            if !exists {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+                return
+            }
+
+            var basketUpdateRequest struct {
+                Items []struct {
+                    ItemID   uint `json:"item_id"`
+                    Quantity int  `json:"quantity"`
+                } `json:"items"`
+            }
+
+            if err := c.BindJSON(&basketUpdateRequest); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON body"})
+                return
+            }
+
+            tx := initializers.DB.Begin()
+
+            basket := models.Basket{}
+            if err := tx.Where("user_id = ?", userID.(uint)).FirstOrCreate(&basket, models.Basket{UserID: userID.(uint)}).Error; err != nil {
+                tx.Rollback()
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve or create basket"})
+                return
+            }
+
+            for _, item := range basketUpdateRequest.Items {
+                basketItem := models.BasketItem{}
+                result := tx.Where("basket_id = ? AND item_id = ?", basket.ID, item.ItemID).First(&basketItem)
+
+                if result.RowsAffected == 0 {
+                    basketItem = models.BasketItem{
+                        BasketID: basket.ID,
+                        ItemID:   item.ItemID,
+                        Quantity: item.Quantity,
+                    }
+                    if err := tx.Create(&basketItem).Error; err != nil {
+                        tx.Rollback()
+                        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to basket"})
+                        return
+                    }
+                } else {
+                    basketItem.Quantity += item.Quantity
+                    if err := tx.Save(&basketItem).Error; err != nil {
+                        tx.Rollback()
+                        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item in basket"})
+                        return
+                    }
+                }
+            }
+
+            tx.Commit()
+            c.JSON(http.StatusOK, gin.H{"message": "Basket updated successfully", "basketId": basket.ID})
+        })
+    }
+}
+
+
+>>>>>>> ba78c044b4f9e63c2cbcc49ba7411f5061ae9a2c
 type OrderRequest struct {
 	OrderItems []OrderItem `json:"order_items"`
 }
@@ -200,7 +308,7 @@ func setupOrderEndpoints(router *gin.Engine) {
 
                 menuItem.Quantity -= item.Quantity 
                 if err := tx.Save(&menuItem).Error; err != nil {
-                    tx.Rollback() // Rollback the transaction on error
+                    tx.Rollback() 
                     c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item stock", "productID": item.ProductID})
                     return
                 }
