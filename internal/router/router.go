@@ -53,7 +53,7 @@ func setupAuthEndpoints(router *gin.Engine) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
-		token, err := utils.GenerateToken(existingUser.Username, string(existingUser.Role))
+		token, err := utils.GenerateToken(existingUser.Username, string(existingUser.Role), int(existingUser.ID))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return
