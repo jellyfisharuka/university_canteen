@@ -12,6 +12,6 @@ func init() {
 
 func main() {
 	router := router.SetupRouter()
-	router.Run(":8000")
+	router.Run(":8092")
 
 }
