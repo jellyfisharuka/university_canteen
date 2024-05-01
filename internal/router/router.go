@@ -18,10 +18,10 @@ func SetupRouter() *gin.Engine {
 	})
 	router.GET("/private", utils.AuthMiddleware(), func(c *gin.Context) {
 		role, _ := c.Get("role") // Получаем роль пользователя из контекста
-		if role == "menu_admin" {
+		if role == "admin" {
 			// Действия для администратора меню
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (menu admin)"})
-		} else {
+		} else if role == "client" {
 			// Действия для обычного пользователя
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (user)"})
 		}
@@ -34,12 +34,12 @@ func SetupRouter() *gin.Engine {
 			return
 		}
 		var existingUser models.User
-		result := initializers.DB.Where("username = ?", loginUser.Username).First(&existingUser)
+		result := initializers.DB.Select("username", "password", "role").Where("username = ?", loginUser.Username).First(&existingUser)
 		if result.Error != nil || !utils.CheckPassword(existingUser.Password, loginUser.Password) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
-		token, err := utils.GenerateToken(loginUser.Username)
+		token, err := utils.GenerateToken(existingUser.Username, string(existingUser.Role))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return

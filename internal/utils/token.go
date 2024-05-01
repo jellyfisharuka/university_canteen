@@ -14,10 +14,12 @@ import (
 )
 
 var jwtKey = []byte(os.Getenv("my_secret"))
-func GenerateToken(username string) (string, error) {
+
+func GenerateToken(username string,  role string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"username": username,
+		"role":     role,
 		"exp":      time.Now().Add(time.Hour * 1).Unix(),
 	})
 
@@ -29,7 +31,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		tokenString := c.GetHeader("Authorization")
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			
+
 			c.Abort()
 			return
 		}
@@ -54,15 +56,15 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
+        fmt.Println("Claims from token:", claims)
 		role, ok := claims["role"].(string)
-		if !ok || (role != "user" && role != "menu_admin") {
+		if !ok || (role != "client" && role != "admin") {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 			c.Abort()
 			return
 		}
 
-		c.Set("role", role) 
+		c.Set("role", role)
 		c.Next()
 	}
 
