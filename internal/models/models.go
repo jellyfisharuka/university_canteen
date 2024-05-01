@@ -48,6 +48,7 @@ type OrderDetail struct {
 	OrderID  uint // Foreign key for Order
 	ItemID   uint // Foreign key for Menu item
 	Quantity int
+	TotalCost    decimal.Decimal
 	Order    Order `gorm:"foreignKey:OrderID"`
 	MenuItem Menu  `gorm:"foreignKey:ItemID"`
 }

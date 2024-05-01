@@ -19,6 +19,7 @@ func SetupRouter() *gin.Engine {
 	setupBasketEndpoints(router)
 	setupMenuEndpoints(router)
 	setupOrderEndpoints(router)
+	setupOrderRoutes(router)
 	return router
 }
 
@@ -164,63 +165,121 @@ type OrderItem struct {
 }
 
 func setupOrderEndpoints(router *gin.Engine) {
-	orders := router.Group("/orders")
-	{
-		// POST запрос для создания нового заказа
-		orders.POST("/", utils.AuthMiddleware(), func(c *gin.Context) {
-			// Получаем UserID из контекста, предоставленного middleware
-			userIDAny, _ := c.Get("ID")
-			userID, ok := userIDAny.(uint)
-			if !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-				return
-			}
+    orders := router.Group("/orders", utils.AuthMiddleware())
+    {
+        orders.POST("/", func(c *gin.Context) {
+            userID, _ := c.Get("ID")
+            var orderReq OrderRequest
+            if err := c.BindJSON(&orderReq); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+                return
+            }
 
-			var orderReq OrderRequest
-			if err := c.BindJSON(&orderReq); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-				return
-			}
+            newOrder := models.Order{
+                UserID:       userID.(uint),
+                OrderDetails: []models.OrderDetail{},
+                CreatedAt:    time.Now(),
+                OrderStatus:  models.Preparing, // Assuming a default status
+            }
 
-			// Создаем новый заказ
-			newOrder := models.Order{
-				UserID:       userID,
-				OrderDetails: make([]models.OrderDetail, 0),
-				CreatedAt:    time.Now(),
-			}
+            var totalPrice decimal.Decimal
+            tx := initializers.DB.Begin() // Begin a transaction
 
-			// Вычисляем общую стоимость заказа
-			var totalPrice decimal.Decimal
+            for _, item := range orderReq.OrderItems {
+                menuItem := models.Menu{}
+                result := tx.First(&menuItem, item.ProductID)
+                if result.Error != nil {
+                    tx.Rollback() // Rollback the transaction on error
+                    c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found", "productID": item.ProductID})
+                    return
+                }
 
-			// Добавляем элементы заказа и вычисляем общую стоимость
-			for _, item := range orderReq.OrderItems {
-				menuItem := models.Menu{}
-				result := initializers.DB.First(&menuItem, item.ProductID)
-				if result.Error != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
-					return
-				}
+                if menuItem.Quantity < item.Quantity {
+                    tx.Rollback() // Rollback the transaction if not enough stock
+                    c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough stock", "productID": item.ProductID})
+                    return
+                }
 
-				orderDetail := models.OrderDetail{
-					ItemID:   item.ProductID,
-					Quantity: item.Quantity,
-				}
-				newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
+                menuItem.Quantity -= item.Quantity // Subtract the ordered quantity from the menu item stock
+                if err := tx.Save(&menuItem).Error; err != nil {
+                    tx.Rollback() // Rollback the transaction on error
+                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item stock", "productID": item.ProductID})
+                    return
+                }
 
-				// Вычисляем стоимость для данного элемента заказа и добавляем к общей стоимости
-				itemPrice := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
-				totalPrice = totalPrice.Add(itemPrice)
-			}
+                // Calculate the total cost for this order detail
+                itemTotalCost := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
 
-			newOrder.TotalPrice = totalPrice
+                orderDetail := models.OrderDetail{
+                    ItemID:    item.ProductID,
+                    Quantity:  item.Quantity,
+                    TotalCost: itemTotalCost, // Set the total cost calculated
+                }
+                newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
 
-			// Сохраняем новый заказ в базе данных
-			if err := initializers.DB.Create(&newOrder).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
-				return
-			}
+                totalPrice = totalPrice.Add(itemTotalCost)
+            }
 
-			c.JSON(http.StatusCreated, newOrder)
-		})
-	}
+            newOrder.TotalPrice = totalPrice
+
+            if err := tx.Create(&newOrder).Error; err != nil {
+                tx.Rollback() // Rollback the transaction if the order fails to create
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+                return
+            }
+
+            tx.Commit() // Commit the transaction
+            c.JSON(http.StatusCreated, newOrder)
+        })
+    }
+}
+
+
+  func setupOrderRoutes(router *gin.Engine) {
+    orders := router.Group("/orders", utils.AuthMiddleware())
+    {
+        orders.GET("/", func(c *gin.Context) {
+            userID, exists := c.Get("ID")
+            if !exists {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+                return
+            }
+
+            var userOrders []models.Order
+            if err := initializers.DB.Preload("OrderDetails.MenuItem").Where("user_id = ?", userID.(uint)).Find(&userOrders).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve orders", "details": err.Error()})
+                return
+            }
+
+            response := make([]map[string]interface{}, 0)
+            for _, order := range userOrders {
+                orderItems := make([]map[string]interface{}, 0)
+                for _, detail := range order.OrderDetails {
+                    orderItems = append(orderItems, map[string]interface{}{
+                        "id": detail.ID,
+                        "item": map[string]interface{}{
+                            "ID":          detail.MenuItem.ID,
+                            "name":        detail.MenuItem.Name,
+                            "description": detail.MenuItem.Description,
+                            "price":       detail.MenuItem.Price.String(),
+                        },
+                        "quantity":    detail.Quantity,
+                        "total_price": detail.TotalCost.String(),
+                    })
+                }
+
+                response = append(response, map[string]interface{}{
+                   
+                    "order_id":     order.ID,
+                    "order_items":  orderItems,
+                    "order_status": order.OrderStatus,
+                    "order_cost":   order.TotalPrice.String(),
+                    "updated_at":   order.UpdatedAt.Format(time.RFC3339Nano),
+					"created_at":   order.CreatedAt.Format(time.RFC3339Nano),
+                })
+            }
+
+            c.JSON(http.StatusOK, response)
+        })
+    }
 }
