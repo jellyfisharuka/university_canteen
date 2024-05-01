@@ -5,9 +5,10 @@ import (
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
-	"net/http"
-
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+	"net/http"
+	"time"
 )
 
 func SetupRouter() *gin.Engine {
@@ -17,6 +18,7 @@ func SetupRouter() *gin.Engine {
 	setupAuthEndpoints(router)
 	setupBasketEndpoints(router)
 	setupMenuEndpoints(router)
+	setupOrderEndpoints(router)
 	return router
 }
 
@@ -48,11 +50,12 @@ func setupAuthEndpoints(router *gin.Engine) {
 			return
 		}
 		var existingUser models.User
-		result := initializers.DB.Select("username", "password", "role").Where("username = ?", loginUser.Username).First(&existingUser)
+		result := initializers.DB.Select("ID", "username", "password", "role").Where("username = ?", loginUser.Username).First(&existingUser)
 		if result.Error != nil || !utils.CheckPassword(existingUser.Password, loginUser.Password) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
+
 		token, err := utils.GenerateToken(existingUser.Username, string(existingUser.Role), int(existingUser.ID))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
@@ -151,3 +154,76 @@ func setupBasketEndpoints(router *gin.Engine) {
 	})
 }
 
+<<<<<<< HEAD
+=======
+type OrderRequest struct {
+	OrderItems []OrderItem `json:"order_items"`
+}
+
+type OrderItem struct {
+	ProductID uint `json:"product_id"`
+	Quantity  int  `json:"quantity"`
+}
+
+func setupOrderEndpoints(router *gin.Engine) {
+	orders := router.Group("/orders")
+	{
+		// POST запрос для создания нового заказа
+		orders.POST("/", utils.AuthMiddleware(), func(c *gin.Context) {
+			// Получаем UserID из контекста, предоставленного middleware
+			userIDAny, _ := c.Get("ID")
+			userID, ok := userIDAny.(uint)
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+				return
+			}
+
+			var orderReq OrderRequest
+			if err := c.BindJSON(&orderReq); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+				return
+			}
+
+			// Создаем новый заказ
+			newOrder := models.Order{
+				UserID:       userID,
+				OrderDetails: make([]models.OrderDetail, 0),
+				CreatedAt:    time.Now(),
+			}
+
+			// Вычисляем общую стоимость заказа
+			var totalPrice decimal.Decimal
+
+			// Добавляем элементы заказа и вычисляем общую стоимость
+			for _, item := range orderReq.OrderItems {
+				menuItem := models.Menu{}
+				result := initializers.DB.First(&menuItem, item.ProductID)
+				if result.Error != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+					return
+				}
+
+				orderDetail := models.OrderDetail{
+					ItemID:   item.ProductID,
+					Quantity: item.Quantity,
+				}
+				newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
+
+				// Вычисляем стоимость для данного элемента заказа и добавляем к общей стоимости
+				itemPrice := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
+				totalPrice = totalPrice.Add(itemPrice)
+			}
+
+			newOrder.TotalPrice = totalPrice
+
+			// Сохраняем новый заказ в базе данных
+			if err := initializers.DB.Create(&newOrder).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+				return
+			}
+
+			c.JSON(http.StatusCreated, newOrder)
+		})
+	}
+}
+>>>>>>> 1821d9010e77f7d3debd2018a1fb15da611554ab
