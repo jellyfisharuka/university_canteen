@@ -17,9 +17,9 @@ const (
 type Status string
 
 const (
-	Canceled   Status = "canceled"
-	Preparing  Status = "preparing"
-	Ready      Status = "ready"
+	Canceled  Status = "canceled"
+	Preparing Status = "preparing"
+	Ready     Status = "ready"
 	Completed Status = "completed"
 )
 
@@ -34,7 +34,7 @@ type User struct {
 }
 type Order struct {
 	ID           uint   `gorm:"primaryKey"`
-	UserID       uint   
+	UserID       uint
 	OrderStatus  Status `gorm:"type:varchar(255)"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -43,17 +43,17 @@ type Order struct {
 	OrderDetails []OrderDetail `gorm:"foreignKey:OrderID"`
 }
 type OrderDetail struct {
-	ID       uint `gorm:"primaryKey;autoIncrement"`
-	OrderID  uint 
-	ItemID   uint 
-	Quantity int
-	TotalCost    decimal.Decimal
-	Order    Order `gorm:"foreignKey:OrderID"`
-	MenuItem Menu  `gorm:"foreignKey:ItemID"`
+	ID        uint `gorm:"primaryKey;autoIncrement"`
+	OrderID   uint
+	ItemID    uint
+	Quantity  int
+	TotalCost decimal.Decimal
+	Order     Order `gorm:"foreignKey:OrderID"`
+	MenuItem  Menu  `gorm:"foreignKey:ItemID"`
 }
 type Basket struct {
     ID          uint `gorm:"primaryKey"`
-    UserID      uint 
+    UserID      uint
     CreatedAt   time.Time
     UpdatedAt   time.Time
     TotalPrice  decimal.Decimal
