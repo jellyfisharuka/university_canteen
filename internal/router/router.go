@@ -1,15 +1,18 @@
 package router
 
 import (
+	"errors"
 	"final_project/initializers"
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
-	"github.com/go-playground/validator/v10"
-	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
+	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 func SetupRouter() *gin.Engine {
@@ -107,25 +110,33 @@ func setupMenuEndpoints(router *gin.Engine) {
 			}
 		})
 
-		menuRoutes.PUT("/:itemId", func(c *gin.Context) {
-			role, _ := c.Get("role")
-			if role != "admin" {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
-				return
-			}
-			var menuItem models.Menu
-			itemId := c.Param("itemId")
-			if err := initializers.DB.First(&menuItem, itemId).Error; err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
-				return
-			}
-			if err := c.BindJSON(&menuItem); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-				return
-			}
-			initializers.DB.Save(&menuItem)
-			c.JSON(http.StatusOK, gin.H{"message": "Menu item updated successfully"})
-		})
+        menuRoutes.PATCH("/:itemId", func(c *gin.Context) {
+            role, _ := c.Get("role")
+            if role != "admin" {
+                c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+                return
+            }
+
+            itemId := c.Param("itemId")
+            var updates map[string]interface{}
+            if err := c.BindJSON(&updates); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "details": err.Error()})
+                return
+            }
+
+            result := initializers.DB.Model(&models.Menu{}).Where("id = ?", itemId).Updates(updates)
+            if result.Error != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item", "details": result.Error.Error()})
+                return
+            }
+
+            if result.RowsAffected == 0 {
+                c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
+                return
+            }
+
+            c.JSON(http.StatusOK, gin.H{"message": "Menu item updated successfully"})
+      	})
 
 		menuRoutes.DELETE("/:itemId", func(c *gin.Context) {
 			role, _ := c.Get("role")
@@ -151,101 +162,108 @@ func setupMenuEndpoints(router *gin.Engine) {
 		})
 	}
 }
+
+type BasketItemUpdateRequest struct {
+    ItemID   uint `json:"item_id"`
+    Quantity int  `json:"quantity"`
+}
+
 func setupBasketRouters(router *gin.Engine) {
     basketRoutes := router.Group("/basket", utils.AuthMiddleware())
     {
-        basketRoutes.GET("/", func(c *gin.Context) {
-            userID, exists := c.Get("ID")
-            if !exists {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-                return
-            }
-
-            var basket models.Basket
-            result := initializers.DB.Preload("BasketItems.MenuItem").Where("user_id = ?", userID.(uint)).First(&basket)
-            if result.Error != nil {
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
-                return
-            }
-
-			var totalPrice decimal.Decimal = decimal.NewFromFloat(0.0) 
-            items := []map[string]interface{}{}
-            for _, item := range basket.BasketItems {
-                itemTotalPrice := item.MenuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
-                items = append(items, map[string]interface{}{
-                    "item_id":     item.MenuItem.ID,
-                    "name":        item.MenuItem.Name,
-                    "description": item.MenuItem.Description,
-                    "price":       item.MenuItem.Price.String(),
-                    "quantity":    item.Quantity,
-                    "total_price": itemTotalPrice.String(),
-                })
-                totalPrice = totalPrice.Add(itemTotalPrice)
-            }
-
-            c.JSON(http.StatusOK, gin.H{
-                "basket_id":   basket.ID,
-                "items":       items,
-                "total_price": totalPrice.String(),
-            })
-        })
-
+		basketRoutes.GET("/", func(c *gin.Context) {
+			userID, exists := c.Get("ID")
+			if !exists {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+				return
+			}
+		
+			var basket models.Basket
+			result := initializers.DB.Preload("BasketItems.MenuItem").Where("user_id = ?", userID.(uint)).First(&basket)
+			if result.Error != nil {
+				if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+					c.JSON(http.StatusOK, gin.H{"basket_id": 0, "items": []interface{}{}, "total_price": "0.00"})
+					return
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
+				return
+			}
+		
+			var totalPrice decimal.Decimal = decimal.NewFromFloat(0.0)
+			items := []map[string]interface{}{}
+			for _, item := range basket.BasketItems {
+				itemTotalPrice := item.MenuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
+				items = append(items, map[string]interface{}{
+					"item_id":     item.MenuItem.ID,
+					"name":        item.MenuItem.Name,
+					"description": item.MenuItem.Description,
+					"price":       item.MenuItem.Price.String(),
+					"quantity":    item.Quantity,
+					"total_price": itemTotalPrice.String(),
+				})
+				totalPrice = totalPrice.Add(itemTotalPrice)
+			}
+		
+			if len(items) == 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"basket_id":   basket.ID,
+					"items":       items,
+					"total_price": "0.00",
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"basket_id":   basket.ID,
+					"items":       items,
+					"total_price": totalPrice.String(),
+				})
+			}
+		})
+		
         basketRoutes.POST("/", func(c *gin.Context) {
-            userID, exists := c.Get("ID")
-            if !exists {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-                return
-            }
-
-            var basketUpdateRequest struct {
-                Items []struct {
-                    ItemID   uint `json:"item_id"`
-                    Quantity int  `json:"quantity"`
-                } `json:"items"`
-            }
-
-            if err := c.BindJSON(&basketUpdateRequest); err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON body"})
-                return
-            }
-
-            tx := initializers.DB.Begin()
-
-            basket := models.Basket{}
-            if err := tx.Where("user_id = ?", userID.(uint)).FirstOrCreate(&basket, models.Basket{UserID: userID.(uint)}).Error; err != nil {
-                tx.Rollback()
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve or create basket"})
-                return
-            }
-
-            for _, item := range basketUpdateRequest.Items {
-                basketItem := models.BasketItem{}
-                result := tx.Where("basket_id = ? AND item_id = ?", basket.ID, item.ItemID).First(&basketItem)
-
-                if result.RowsAffected == 0 {
-                    basketItem = models.BasketItem{
-                        BasketID: basket.ID,
-                        ItemID:   item.ItemID,
-                        Quantity: item.Quantity,
-                    }
-                    if err := tx.Create(&basketItem).Error; err != nil {
-                        tx.Rollback()
-                        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to basket"})
-                        return
-                    }
-                } else {
-                    basketItem.Quantity += item.Quantity
-                    if err := tx.Save(&basketItem).Error; err != nil {
-                        tx.Rollback()
-                        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item in basket"})
-                        return
-                    }
-                }
-            }
-
-            tx.Commit()
-            c.JSON(http.StatusOK, gin.H{"message": "Basket updated successfully", "basketId": basket.ID})
-        })
+			userID, exists := c.Get("ID")
+			if !exists {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+				return
+			}
+		
+			var basketAddRequest struct {
+				Items []struct {
+					ItemID   uint `json:"item_id"`
+					Quantity int  `json:"quantity"`
+				} `json:"items"`
+			}
+		
+			if err := c.BindJSON(&basketAddRequest); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON body"})
+				return
+			}
+		
+			tx := initializers.DB.Begin()
+		
+			basket := models.Basket{}
+			if err := tx.Where("user_id = ?", userID.(uint)).FirstOrCreate(&basket, models.Basket{UserID: userID.(uint)}).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve or create basket"})
+				return
+			}
+		
+			for _, item := range basketAddRequest.Items {
+				basketItem := models.BasketItem{
+					BasketID: basket.ID,
+					ItemID:   item.ItemID,
+					Quantity: item.Quantity,
+				}
+				if err := tx.Create(&basketItem).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to basket"})
+					return
+				}
+			}
+		
+			tx.Commit()
+			c.JSON(http.StatusOK, gin.H{"message": "Items added to basket successfully", "basketId": basket.ID})
+		})
+		
 		basketRoutes.DELETE("/", func(c *gin.Context) {
             userID, exists := c.Get("ID")
             if !exists {
@@ -253,19 +271,69 @@ func setupBasketRouters(router *gin.Engine) {
                 return
             }
 
+            tx := initializers.DB.Begin()
+
             var basket models.Basket
-            result := initializers.DB.Where("user_id = ?", userID.(uint)).First(&basket)
-            if result.Error != nil {
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
+            if err := tx.Where("user_id = ?", userID.(uint)).First(&basket).Error; err != nil {
+                tx.Rollback()
+                if errors.Is(err, gorm.ErrRecordNotFound) {
+                    c.JSON(http.StatusOK, gin.H{"message": "Basket not found"})
+                } else {
+                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": err.Error()})
+                }
                 return
             }
 
-            if err := initializers.DB.Delete(&basket).Error; err != nil {
+            if err := tx.Where("basket_id = ?", basket.ID).Delete(&models.BasketItem{}).Error; err != nil {
+                tx.Rollback()
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket items", "details": err.Error()})
+                return
+            }
+
+            if err := tx.Delete(&basket).Error; err != nil {
+                tx.Rollback()
                 c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket", "details": err.Error()})
                 return
             }
 
-            c.JSON(http.StatusOK, gin.H{"message": "Basket deleted successfully"})
+            tx.Commit()
+            c.JSON(http.StatusOK, gin.H{"message": "Basket cleared successfully"})
+        })
+		basketRoutes.PATCH("/items", func(c *gin.Context) {
+            userID, exists := c.Get("ID")
+            if !exists {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+                return
+            }
+
+            var updateReq BasketItemUpdateRequest
+            if err := c.BindJSON(&updateReq); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
+                return
+            }
+
+            tx := initializers.DB.Begin()
+
+            var basketItem models.BasketItem
+            if err := tx.Where("basket_id IN (SELECT id FROM baskets WHERE user_id = ?) AND item_id = ?", userID.(uint), updateReq.ItemID).First(&basketItem).Error; err != nil {
+                tx.Rollback()
+                if errors.Is(err, gorm.ErrRecordNotFound) {
+                    c.JSON(http.StatusNotFound, gin.H{"error": "Basket item not found"})
+                } else {
+                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving basket item", "details": err.Error()})
+                }
+                return
+            }
+
+            basketItem.Quantity = updateReq.Quantity
+            if err := tx.Save(&basketItem).Error; err != nil {
+                tx.Rollback()
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update basket item", "details": err.Error()})
+                return
+            }
+
+            tx.Commit()
+            c.JSON(http.StatusOK, gin.H{"message": "Basket item updated successfully", "item_id": updateReq.ItemID, "new_quantity": updateReq.Quantity})
         })
     }
 }
