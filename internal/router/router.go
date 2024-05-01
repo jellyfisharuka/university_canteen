@@ -1,11 +1,11 @@
 package router
 
 import (
-	"errors"
 	"final_project/initializers"
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
+	"github.com/go-playground/validator/v10"
 	"net/http"
 	"time"
 
@@ -21,9 +21,13 @@ func SetupRouter() *gin.Engine {
 	setupPrivateEndpoints(router)
 	setupAuthEndpoints(router)
 	setupBasketRouters(router)
+
 	setupMenuEndpoints(router)
 	setupOrderEndpoints(router)
 	setupOrderRoutes(router)
+
+	//only admin routers
+	SetupOrderUpdateRouter(router)
 	return router
 }
 
@@ -35,10 +39,12 @@ func setupPublicEndpoints(router *gin.Engine) {
 
 func setupPrivateEndpoints(router *gin.Engine) {
 	router.GET("/private", utils.AuthMiddleware(), func(c *gin.Context) {
-		role, _ := c.Get("role") 
+		role, _ := c.Get("role")
+
 		if role == "admin" {
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (menu admin)"})
 		} else if role == "client" {
+
 			c.JSON(http.StatusOK, gin.H{"message": "welcome to private endpoint (user)"})
 		}
 
@@ -177,7 +183,7 @@ func setupBasketRouters(router *gin.Engine) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
 				return
 			}
-		
+
 			var basket models.Basket
 			result := initializers.DB.Preload("BasketItems.MenuItem").Where("user_id = ?", userID.(uint)).First(&basket)
 			if result.Error != nil {
@@ -188,7 +194,7 @@ func setupBasketRouters(router *gin.Engine) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
 				return
 			}
-		
+
 			var totalPrice decimal.Decimal = decimal.NewFromFloat(0.0)
 			items := []map[string]interface{}{}
 			for _, item := range basket.BasketItems {
@@ -203,7 +209,7 @@ func setupBasketRouters(router *gin.Engine) {
 				})
 				totalPrice = totalPrice.Add(itemTotalPrice)
 			}
-		
+
 			if len(items) == 0 {
 				c.JSON(http.StatusOK, gin.H{
 					"basket_id":   basket.ID,
@@ -218,35 +224,35 @@ func setupBasketRouters(router *gin.Engine) {
 				})
 			}
 		})
-		
+
         basketRoutes.POST("/", func(c *gin.Context) {
 			userID, exists := c.Get("ID")
 			if !exists {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
 				return
 			}
-		
+
 			var basketAddRequest struct {
 				Items []struct {
 					ItemID   uint `json:"item_id"`
 					Quantity int  `json:"quantity"`
 				} `json:"items"`
 			}
-		
+
 			if err := c.BindJSON(&basketAddRequest); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON body"})
 				return
 			}
-		
+
 			tx := initializers.DB.Begin()
-		
+
 			basket := models.Basket{}
 			if err := tx.Where("user_id = ?", userID.(uint)).FirstOrCreate(&basket, models.Basket{UserID: userID.(uint)}).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve or create basket"})
 				return
 			}
-		
+
 			for _, item := range basketAddRequest.Items {
 				basketItem := models.BasketItem{
 					BasketID: basket.ID,
@@ -259,11 +265,11 @@ func setupBasketRouters(router *gin.Engine) {
 					return
 				}
 			}
-		
+
 			tx.Commit()
 			c.JSON(http.StatusOK, gin.H{"message": "Items added to basket successfully", "basketId": basket.ID})
 		})
-		
+
 		basketRoutes.DELETE("/", func(c *gin.Context) {
             userID, exists := c.Get("ID")
             if !exists {
@@ -296,44 +302,7 @@ func setupBasketRouters(router *gin.Engine) {
                 return
             }
 
-            tx.Commit()
-            c.JSON(http.StatusOK, gin.H{"message": "Basket cleared successfully"})
-        })
-		basketRoutes.PATCH("/items", func(c *gin.Context) {
-            userID, exists := c.Get("ID")
-            if !exists {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-                return
-            }
-
-            var updateReq BasketItemUpdateRequest
-            if err := c.BindJSON(&updateReq); err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
-                return
-            }
-
-            tx := initializers.DB.Begin()
-
-            var basketItem models.BasketItem
-            if err := tx.Where("basket_id IN (SELECT id FROM baskets WHERE user_id = ?) AND item_id = ?", userID.(uint), updateReq.ItemID).First(&basketItem).Error; err != nil {
-                tx.Rollback()
-                if errors.Is(err, gorm.ErrRecordNotFound) {
-                    c.JSON(http.StatusNotFound, gin.H{"error": "Basket item not found"})
-                } else {
-                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving basket item", "details": err.Error()})
-                }
-                return
-            }
-
-            basketItem.Quantity = updateReq.Quantity
-            if err := tx.Save(&basketItem).Error; err != nil {
-                tx.Rollback()
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update basket item", "details": err.Error()})
-                return
-            }
-
-            tx.Commit()
-            c.JSON(http.StatusOK, gin.H{"message": "Basket item updated successfully", "item_id": updateReq.ItemID, "new_quantity": updateReq.Quantity})
+            c.JSON(http.StatusOK, gin.H{"message": "Basket deleted successfully"})
         })
     }
 }
@@ -349,120 +318,167 @@ type OrderItem struct {
 }
 
 func setupOrderEndpoints(router *gin.Engine) {
-    orders := router.Group("/orders", utils.AuthMiddleware())
-    {
-        orders.POST("/", func(c *gin.Context) {
-            userID, _ := c.Get("ID")
-            var orderReq OrderRequest
-            if err := c.BindJSON(&orderReq); err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-                return
-            }
+	orders := router.Group("/orders", utils.AuthMiddleware())
+	{
+		orders.POST("/", func(c *gin.Context) {
+			userID, _ := c.Get("ID")
+			var orderReq OrderRequest
+			if err := c.BindJSON(&orderReq); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+				return
+			}
 
-            newOrder := models.Order{
-                UserID:       userID.(uint),
-                OrderDetails: []models.OrderDetail{},
-                CreatedAt:    time.Now(),
-                OrderStatus:  models.Preparing, 
-            }
+			newOrder := models.Order{
+				UserID:       userID.(uint),
+				OrderDetails: []models.OrderDetail{},
+				CreatedAt:    time.Now(),
+				OrderStatus:  models.Preparing,
+			}
 
-            var totalPrice decimal.Decimal
-            tx := initializers.DB.Begin() 
+			var totalPrice decimal.Decimal
+			tx := initializers.DB.Begin()
 
-            for _, item := range orderReq.OrderItems {
-                menuItem := models.Menu{}
-                result := tx.First(&menuItem, item.ProductID)
-                if result.Error != nil {
-                    tx.Rollback() 
-                    c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found", "productID": item.ProductID})
-                    return
-                }
+			for _, item := range orderReq.OrderItems {
+				menuItem := models.Menu{}
+				result := tx.First(&menuItem, item.ProductID)
+				if result.Error != nil {
+					tx.Rollback()
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found", "productID": item.ProductID})
+					return
+				}
 
-                if menuItem.Quantity < item.Quantity {
-                    tx.Rollback() 
-                    c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough stock", "productID": item.ProductID})
-                    return
-                }
+				if menuItem.Quantity < item.Quantity {
+					tx.Rollback()
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough stock", "productID": item.ProductID})
+					return
+				}
 
-                menuItem.Quantity -= item.Quantity 
-                if err := tx.Save(&menuItem).Error; err != nil {
-                    tx.Rollback() 
-                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item stock", "productID": item.ProductID})
-                    return
-                }
+				menuItem.Quantity -= item.Quantity
+				if err := tx.Save(&menuItem).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item stock", "productID": item.ProductID})
+					return
+				}
 
-                itemTotalCost := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
+				itemTotalCost := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
 
-                orderDetail := models.OrderDetail{
-                    ItemID:    item.ProductID,
-                    Quantity:  item.Quantity,
-                    TotalCost: itemTotalCost, 
-                }
-                newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
+				orderDetail := models.OrderDetail{
+					ItemID:    item.ProductID,
+					Quantity:  item.Quantity,
+					TotalCost: itemTotalCost,
+				}
+				newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
 
-                totalPrice = totalPrice.Add(itemTotalCost)
-            }
+				totalPrice = totalPrice.Add(itemTotalCost)
+			}
 
-            newOrder.TotalPrice = totalPrice
+			newOrder.TotalPrice = totalPrice
 
-            if err := tx.Create(&newOrder).Error; err != nil {
-                tx.Rollback() 
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
-                return
-            }
+			if err := tx.Create(&newOrder).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+				return
+			}
 
-            tx.Commit() 
-            c.JSON(http.StatusCreated, newOrder)
-        })
-    }
+			tx.Commit()
+			c.JSON(http.StatusCreated, newOrder)
+		})
+	}
 }
 
+func setupOrderRoutes(router *gin.Engine) {
+	orders := router.Group("/orders", utils.AuthMiddleware())
+	{
+		orders.GET("/", func(c *gin.Context) {
+			userID, exists := c.Get("ID")
+			if !exists {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+				return
+			}
 
-  func setupOrderRoutes(router *gin.Engine) {
-    orders := router.Group("/orders", utils.AuthMiddleware())
-    {
-        orders.GET("/", func(c *gin.Context) {
-            userID, exists := c.Get("ID")
-            if !exists {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-                return
-            }
+			var userOrders []models.Order
+			if err := initializers.DB.Preload("OrderDetails.MenuItem").Where("user_id = ?", userID.(uint)).Find(&userOrders).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve orders", "details": err.Error()})
+				return
+			}
 
-            var userOrders []models.Order
-            if err := initializers.DB.Preload("OrderDetails.MenuItem").Where("user_id = ?", userID.(uint)).Find(&userOrders).Error; err != nil {
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve orders", "details": err.Error()})
-                return
-            }
+			response := make([]map[string]interface{}, 0)
+			for _, order := range userOrders {
+				orderItems := make([]map[string]interface{}, 0)
+				for _, detail := range order.OrderDetails {
+					orderItems = append(orderItems, map[string]interface{}{
+						"id": detail.ID,
+						"item": map[string]interface{}{
+							"ID":          detail.MenuItem.ID,
+							"name":        detail.MenuItem.Name,
+							"description": detail.MenuItem.Description,
+							"price":       detail.MenuItem.Price.String(),
+						},
+						"quantity":    detail.Quantity,
+						"total_price": detail.TotalCost.String(),
+					})
+				}
 
-            response := make([]map[string]interface{}, 0)
-            for _, order := range userOrders {
-                orderItems := make([]map[string]interface{}, 0)
-                for _, detail := range order.OrderDetails {
-                    orderItems = append(orderItems, map[string]interface{}{
-                        "id": detail.ID,
-                        "item": map[string]interface{}{
-                            "ID":          detail.MenuItem.ID,
-                            "name":        detail.MenuItem.Name,
-                            "description": detail.MenuItem.Description,
-                            "price":       detail.MenuItem.Price.String(),
-                        },
-                        "quantity":    detail.Quantity,
-                        "total_price": detail.TotalCost.String(),
-                    })
-                }
+				response = append(response, map[string]interface{}{
 
-                response = append(response, map[string]interface{}{
-                   
-                    "order_id":     order.ID,
-                    "order_items":  orderItems,
-                    "order_status": order.OrderStatus,
-                    "order_cost":   order.TotalPrice.String(),
-                    "updated_at":   order.UpdatedAt.Format(time.RFC3339Nano),
+					"order_id":     order.ID,
+					"order_items":  orderItems,
+					"order_status": order.OrderStatus,
+					"order_cost":   order.TotalPrice.String(),
+					"updated_at":   order.UpdatedAt.Format(time.RFC3339Nano),
 					"created_at":   order.CreatedAt.Format(time.RFC3339Nano),
-                })
-            }
+				})
+			}
 
-            c.JSON(http.StatusOK, response)
-        })
-    }
+			c.JSON(http.StatusOK, response)
+		})
+	}
+}
+
+type UpdateOrderData struct {
+	Status string `json:"status" binding:"required"`
+}
+
+func SetupOrderUpdateRouter(router *gin.Engine) {
+	orders := router.Group("/orders", utils.AuthMiddleware())
+	{
+		orders.PATCH("/:OrderId", func(c *gin.Context) {
+			var updateData UpdateOrderData
+			if err := c.BindJSON(&updateData); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+				return
+			}
+
+			role, _ := c.Get("role")
+			if role != "admin" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Only admin can update order status"})
+				return
+			}
+
+			orderID := c.Param("OrderId")
+			orderStatus := models.Status(updateData.Status)
+
+			switch orderStatus {
+			case models.Canceled, models.Preparing, models.Ready, models.Completed:
+				order := &models.Order{}
+				result := initializers.DB.First(order, orderID)
+				if result.Error != nil {
+					c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+					return
+				}
+
+				order.OrderStatus = orderStatus
+
+				// Сохраняем изменения и выполняем проверку перед сохранением
+				if err := initializers.DB.Save(order).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status", "details": err.Error()})
+					return
+				}
+
+				c.JSON(http.StatusOK, gin.H{"message": "Order status updated successfully"})
+			default:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order status"})
+			}
+		})
+	}
 }
