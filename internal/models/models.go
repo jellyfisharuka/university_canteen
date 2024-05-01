@@ -18,10 +18,10 @@ const (
 type Status string
 
 const (
-	Canceled   Status = "canseled"
+	Canceled   Status = "canceled"
 	Preparing  Status = "preparing"
 	Ready      Status = "ready"
-	Compleated Status = "compoleated"
+	Completed Status = "completed"
 )
 
 type User struct {
