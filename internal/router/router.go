@@ -17,7 +17,6 @@ func SetupRouter() *gin.Engine {
 	setupPublicEndpoints(router)
 	setupPrivateEndpoints(router)
 	setupAuthEndpoints(router)
-	setupBasketEndpoints(router)
 	setupBasketRouters(router)
 	setupMenuEndpoints(router)
 	setupOrderEndpoints(router)
@@ -190,16 +189,7 @@ func setupBasketRouters(router *gin.Engine) {
                 "total_price": totalPrice.String(),
             })
         })
-    }
-}
 
-
-<<<<<<< HEAD
-=======
-
-func setupBasketEndpoints(router *gin.Engine) {
-    basketRoutes := router.Group("/basket", utils.AuthMiddleware())
-    {
         basketRoutes.POST("/", func(c *gin.Context) {
             userID, exists := c.Get("ID")
             if !exists {
@@ -256,11 +246,31 @@ func setupBasketEndpoints(router *gin.Engine) {
             tx.Commit()
             c.JSON(http.StatusOK, gin.H{"message": "Basket updated successfully", "basketId": basket.ID})
         })
+		basketRoutes.DELETE("/", func(c *gin.Context) {
+            userID, exists := c.Get("ID")
+            if !exists {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+                return
+            }
+
+            var basket models.Basket
+            result := initializers.DB.Where("user_id = ?", userID.(uint)).First(&basket)
+            if result.Error != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": result.Error.Error()})
+                return
+            }
+
+            if err := initializers.DB.Delete(&basket).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket", "details": err.Error()})
+                return
+            }
+
+            c.JSON(http.StatusOK, gin.H{"message": "Basket deleted successfully"})
+        })
     }
 }
 
 
->>>>>>> ba78c044b4f9e63c2cbcc49ba7411f5061ae9a2c
 type OrderRequest struct {
 	OrderItems []OrderItem `json:"order_items"`
 }

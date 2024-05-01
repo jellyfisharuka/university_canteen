@@ -84,12 +84,10 @@ func SignupUser(db *gorm.DB, newUser models.User) error {
 	if result.Error == nil {
 		return fmt.Errorf("Username already exists")
 	}
-
 	hashedPassword, err := HashPassword(newUser.Password)
 	if err != nil {
 		return fmt.Errorf("Failed to hash password")
 	}
-
 	newUser.Password = hashedPassword
 	if err := db.Create(&newUser).Error; err != nil {
 		return fmt.Errorf("Failed to create user")
