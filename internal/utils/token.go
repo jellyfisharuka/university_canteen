@@ -67,9 +67,9 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 
 }
-func SignupUser(db *gorm.DB, newUser models.Users) error {
+func SignupUser(db *gorm.DB, newUser models.User) error {
 
-	var existingUser models.Users
+	var existingUser models.User
 	result := db.Where("username = ?", newUser.Username).First(&existingUser)
 	if result.Error == nil {
 		return fmt.Errorf("Username already exists")

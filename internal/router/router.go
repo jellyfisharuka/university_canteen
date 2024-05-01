@@ -26,12 +26,12 @@ func SetupRouter() *gin.Engine {
 		}
 	})
 	router.POST("/login", func(c *gin.Context) {
-		var loginUser models.Users
+		var loginUser models.User
 		if err := c.BindJSON(&loginUser); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
-		var existingUser models.Users
+		var existingUser models.User
 		result := initializers.DB.Where("username = ?", loginUser.Username).First(&existingUser)
 		if result.Error != nil || !utils.CheckPassword(existingUser.Password, loginUser.Password) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
@@ -47,7 +47,7 @@ func SetupRouter() *gin.Engine {
 	})
 
 	router.POST("/signup", func(c *gin.Context) {
-		var newUser models.Users
+		var newUser models.User
 		if err := c.BindJSON(&newUser); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
