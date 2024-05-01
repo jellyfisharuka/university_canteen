@@ -5,9 +5,10 @@ import (
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
-	"net/http"
-
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+	"net/http"
+	"time"
 )
 
 func SetupRouter() *gin.Engine {
@@ -17,6 +18,7 @@ func SetupRouter() *gin.Engine {
 	setupAuthEndpoints(router)
 	setupBasketEndpoints(router)
 	setupMenuEndpoints(router)
+	setupOrderEndpoints(router)
 	return router
 }
 
@@ -149,4 +151,72 @@ func setupBasketEndpoints(router *gin.Engine) {
 	router.GET("/basket", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "welcome to basket endpoint"})
 	})
+}
+
+type OrderRequest struct {
+	OrderItems []OrderItem `json:"order_items"`
+}
+
+type OrderItem struct {
+	ProductID uint `json:"product_id"`
+	Quantity  int  `json:"quantity"`
+}
+
+func setupOrderEndpoints(router *gin.Engine) {
+	orders := router.Group("/orders")
+	{
+		// POST запрос для создания нового заказа
+		orders.POST("/", utils.AuthMiddleware(), func(c *gin.Context) {
+			// Получаем UserID из контекста, предоставленного middleware
+			userID, _ := c.Get("role")
+			fmt.Println("________________HIHIHIHIHIHIHI_______________________________")
+			fmt.Println(userID)
+			fmt.Println("_______________________________________________")
+			var orderReq OrderRequest
+			if err := c.BindJSON(&orderReq); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+				return
+			}
+
+			// Создаем новый заказ
+			newOrder := models.Order{
+				UserID:       userID.(uint),
+				OrderDetails: make([]models.OrderDetail, 0),
+				CreatedAt:    time.Now(),
+			}
+
+			// Вычисляем общую стоимость заказа
+			var totalPrice decimal.Decimal
+
+			// Добавляем элементы заказа и вычисляем общую стоимость
+			for _, item := range orderReq.OrderItems {
+				menuItem := models.Menu{}
+				result := initializers.DB.First(&menuItem, item.ProductID)
+				if result.Error != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+					return
+				}
+
+				orderDetail := models.OrderDetail{
+					ItemID:   item.ProductID,
+					Quantity: item.Quantity,
+				}
+				newOrder.OrderDetails = append(newOrder.OrderDetails, orderDetail)
+
+				// Вычисляем стоимость для данного элемента заказа и добавляем к общей стоимости
+				itemPrice := menuItem.Price.Mul(decimal.NewFromInt(int64(item.Quantity)))
+				totalPrice = totalPrice.Add(itemPrice)
+			}
+
+			newOrder.TotalPrice = totalPrice
+
+			// Сохраняем новый заказ в базе данных
+			if err := initializers.DB.Create(&newOrder).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+				return
+			}
+
+			c.JSON(http.StatusCreated, newOrder)
+		})
+	}
 }
