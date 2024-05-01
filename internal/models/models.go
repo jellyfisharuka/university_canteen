@@ -18,9 +18,9 @@ const (
 type Status string
 
 const (
-	Canceled   Status = "canceled"
-	Preparing  Status = "preparing"
-	Ready      Status = "ready"
+	Canceled  Status = "canceled"
+	Preparing Status = "preparing"
+	Ready     Status = "ready"
 	Completed Status = "completed"
 )
 
@@ -34,8 +34,8 @@ type User struct {
 	Baskets  []Basket `gorm:"foreignKey:UserID"`
 }
 type Order struct {
-	ID           uint   `gorm:"primaryKey"`
-	UserID       uint   // Foreign key for User
+	ID           uint `gorm:"primaryKey"`
+	UserID       uint
 	OrderStatus  Status `gorm:"type:varchar(255)"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -44,13 +44,13 @@ type Order struct {
 	OrderDetails []OrderDetail `gorm:"foreignKey:OrderID"`
 }
 type OrderDetail struct {
-	ID       uint `gorm:"primaryKey;autoIncrement"`
-	OrderID  uint // Foreign key for Order
-	ItemID   uint // Foreign key for Menu item
-	Quantity int
-	TotalCost    decimal.Decimal
-	Order    Order `gorm:"foreignKey:OrderID"`
-	MenuItem Menu  `gorm:"foreignKey:ItemID"`
+	ID        uint `gorm:"primaryKey;autoIncrement"`
+	OrderID   uint
+	ItemID    uint
+	Quantity  int
+	TotalCost decimal.Decimal
+	Order     Order `gorm:"foreignKey:OrderID"`
+	MenuItem  Menu  `gorm:"foreignKey:ItemID"`
 }
 type Basket struct {
 	ID          uint `gorm:"primaryKey"`
@@ -83,7 +83,7 @@ type Menu struct {
 
 func (o *Order) BeforeSave(tx *gorm.DB) (err error) {
 	switch o.OrderStatus {
-	case Canceled, Preparing, Ready, Compleated:
+	case Canceled, Preparing, Ready, Completed:
 		return nil
 	default:
 		return errors.New("invalid order status")
