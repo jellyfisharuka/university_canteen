@@ -150,3 +150,4 @@ func setupBasketEndpoints(router *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{"message": "welcome to basket endpoint"})
 	})
 }
+
