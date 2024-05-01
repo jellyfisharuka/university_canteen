@@ -1,18 +1,17 @@
 package router
 
 import (
+	"errors"
 	"final_project/initializers"
 	"final_project/internal/models"
 	"final_project/internal/utils"
 	"fmt"
-	"github.com/go-playground/validator/v10"
-	"net/http"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"net/http"
+	"time"
 )
 
 func SetupRouter() *gin.Engine {
@@ -25,9 +24,11 @@ func SetupRouter() *gin.Engine {
 	setupMenuEndpoints(router)
 	setupOrderEndpoints(router)
 	setupOrderRoutes(router)
+	SetupOrderDeleteRouter(router)
 
 	//only admin routers
 	SetupOrderUpdateRouter(router)
+
 	return router
 }
 
@@ -116,33 +117,33 @@ func setupMenuEndpoints(router *gin.Engine) {
 			}
 		})
 
-        menuRoutes.PATCH("/:itemId", func(c *gin.Context) {
-            role, _ := c.Get("role")
-            if role != "admin" {
-                c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
-                return
-            }
+		menuRoutes.PATCH("/:itemId", func(c *gin.Context) {
+			role, _ := c.Get("role")
+			if role != "admin" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+				return
+			}
 
-            itemId := c.Param("itemId")
-            var updates map[string]interface{}
-            if err := c.BindJSON(&updates); err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "details": err.Error()})
-                return
-            }
+			itemId := c.Param("itemId")
+			var updates map[string]interface{}
+			if err := c.BindJSON(&updates); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "details": err.Error()})
+				return
+			}
 
-            result := initializers.DB.Model(&models.Menu{}).Where("id = ?", itemId).Updates(updates)
-            if result.Error != nil {
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item", "details": result.Error.Error()})
-                return
-            }
+			result := initializers.DB.Model(&models.Menu{}).Where("id = ?", itemId).Updates(updates)
+			if result.Error != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update menu item", "details": result.Error.Error()})
+				return
+			}
 
-            if result.RowsAffected == 0 {
-                c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
-                return
-            }
+			if result.RowsAffected == 0 {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
+				return
+			}
 
-            c.JSON(http.StatusOK, gin.H{"message": "Menu item updated successfully"})
-      	})
+			c.JSON(http.StatusOK, gin.H{"message": "Menu item updated successfully"})
+		})
 
 		menuRoutes.DELETE("/:itemId", func(c *gin.Context) {
 			role, _ := c.Get("role")
@@ -170,13 +171,13 @@ func setupMenuEndpoints(router *gin.Engine) {
 }
 
 type BasketItemUpdateRequest struct {
-    ItemID   uint `json:"item_id"`
-    Quantity int  `json:"quantity"`
+	ItemID   uint `json:"item_id"`
+	Quantity int  `json:"quantity"`
 }
 
 func setupBasketRouters(router *gin.Engine) {
-    basketRoutes := router.Group("/basket", utils.AuthMiddleware())
-    {
+	basketRoutes := router.Group("/basket", utils.AuthMiddleware())
+	{
 		basketRoutes.GET("/", func(c *gin.Context) {
 			userID, exists := c.Get("ID")
 			if !exists {
@@ -225,7 +226,7 @@ func setupBasketRouters(router *gin.Engine) {
 			}
 		})
 
-        basketRoutes.POST("/", func(c *gin.Context) {
+		basketRoutes.POST("/", func(c *gin.Context) {
 			userID, exists := c.Get("ID")
 			if !exists {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
@@ -271,42 +272,41 @@ func setupBasketRouters(router *gin.Engine) {
 		})
 
 		basketRoutes.DELETE("/", func(c *gin.Context) {
-            userID, exists := c.Get("ID")
-            if !exists {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-                return
-            }
+			userID, exists := c.Get("ID")
+			if !exists {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
+				return
+			}
 
-            tx := initializers.DB.Begin()
+			tx := initializers.DB.Begin()
 
-            var basket models.Basket
-            if err := tx.Where("user_id = ?", userID.(uint)).First(&basket).Error; err != nil {
-                tx.Rollback()
-                if errors.Is(err, gorm.ErrRecordNotFound) {
-                    c.JSON(http.StatusOK, gin.H{"message": "Basket not found"})
-                } else {
-                    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": err.Error()})
-                }
-                return
-            }
+			var basket models.Basket
+			if err := tx.Where("user_id = ?", userID.(uint)).First(&basket).Error; err != nil {
+				tx.Rollback()
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					c.JSON(http.StatusOK, gin.H{"message": "Basket not found"})
+				} else {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve basket", "details": err.Error()})
+				}
+				return
+			}
 
-            if err := tx.Where("basket_id = ?", basket.ID).Delete(&models.BasketItem{}).Error; err != nil {
-                tx.Rollback()
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket items", "details": err.Error()})
-                return
-            }
+			if err := tx.Where("basket_id = ?", basket.ID).Delete(&models.BasketItem{}).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket items", "details": err.Error()})
+				return
+			}
 
-            if err := tx.Delete(&basket).Error; err != nil {
-                tx.Rollback()
-                c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket", "details": err.Error()})
-                return
-            }
+			if err := tx.Delete(&basket).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete basket", "details": err.Error()})
+				return
+			}
 
-            c.JSON(http.StatusOK, gin.H{"message": "Basket deleted successfully"})
-        })
-    }
+			c.JSON(http.StatusOK, gin.H{"message": "Basket deleted successfully"})
+		})
+	}
 }
-
 
 type OrderRequest struct {
 	OrderItems []OrderItem `json:"order_items"`
@@ -479,6 +479,34 @@ func SetupOrderUpdateRouter(router *gin.Engine) {
 			default:
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order status"})
 			}
+		})
+	}
+}
+func SetupOrderDeleteRouter(router *gin.Engine) {
+	orders := router.Group("/orders", utils.AuthMiddleware())
+	{
+		orders.DELETE("/:OrderID/", func(c *gin.Context) {
+			userID, exists := c.Get("ID")
+			if !exists {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found"})
+				return
+			}
+			orderID := c.Param("OrderID")
+			var order models.Order
+			result := initializers.DB.Where("id = ? AND user_id = ?", orderID, userID.(uint)).First(&order)
+			if result.Error != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Order not found or you don't have permission to delete it"})
+				return
+			}
+			if order.OrderStatus != models.Preparing {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete orders with 'preparing' status"})
+				return
+			}
+			if err := initializers.DB.Delete(&order).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete order"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "Order deleted successfully"})
 		})
 	}
 }
