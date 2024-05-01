@@ -154,8 +154,6 @@ func setupBasketEndpoints(router *gin.Engine) {
 	})
 }
 
-<<<<<<< HEAD
-=======
 type OrderRequest struct {
 	OrderItems []OrderItem `json:"order_items"`
 }
@@ -226,4 +224,3 @@ func setupOrderEndpoints(router *gin.Engine) {
 		})
 	}
 }
->>>>>>> 1821d9010e77f7d3debd2018a1fb15da611554ab

@@ -82,7 +82,7 @@ type Menu struct {
 
 func (o *Order) BeforeSave(tx *gorm.DB) (err error) {
 	switch o.OrderStatus {
-	case Canceled, Preparing, Ready, Compleated:
+	case Canceled, Preparing, Ready, Completed:
 		return nil
 	default:
 		return errors.New("invalid order status")
