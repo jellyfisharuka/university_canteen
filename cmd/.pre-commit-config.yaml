@@ -1,0 +1,5 @@
+repos:
+  - repo: https://github.com/pre-commit/mirrors-golangci-lint
+    rev: v1.42.1  
+    hooks:
+      - id: golangci-lint
