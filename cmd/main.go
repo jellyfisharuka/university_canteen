@@ -3,8 +3,7 @@ package main
 import (
 	"final_project/initializers"
 	"final_project/internal/router"
-
-
+	"log"
 )
 
 func init() {
@@ -15,6 +14,9 @@ func init() {
 func main() {
 	
 	router := router.SetupRouter()
-	router.Run(":8092")
+	err := router.Run(":8092")
+if err != nil {
+    log.Fatal(err)
+}
 
 }

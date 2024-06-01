@@ -2,6 +2,7 @@ package initializers
 
 import (
 	"final_project/internal/models"
+	"log"
 	"os"
 
 	"gorm.io/driver/postgres"
@@ -18,8 +19,8 @@ func ConnectDb() {
 		panic("Failed to connect to DB")
 	}
 	
-	DB.AutoMigrate(models.User{}, models.Order{}, models.Basket{}, models.BasketItem{}, models.Menu{}, models.OrderDetail{})
-	if err != nil {
-		panic(err)
-	}
+	erre := DB.AutoMigrate(models.User{}, models.Order{}, models.Basket{}, models.BasketItem{}, models.Menu{}, models.OrderDetail{})
+if erre != nil {
+    log.Fatal(err)
+}
 }
