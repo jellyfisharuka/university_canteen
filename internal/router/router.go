@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
 	setupPublicEndpoints(router)
